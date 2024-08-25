@@ -1,4 +1,4 @@
-package watermark
+package main
 
 import (
 	"fmt"
@@ -13,6 +13,7 @@ import (
 	"github.com/oklog/oklog/pkg/group"
 
 	pb "github.com/manan1979/watermark-service/api/pb/watermark"
+	"github.com/manan1979/watermark-service/internal/database"
 	"github.com/manan1979/watermark-service/pkg/watermark"
 	"github.com/manan1979/watermark-service/pkg/watermark/endpoint"
 	"github.com/manan1979/watermark-service/pkg/watermark/transport"
@@ -28,12 +29,27 @@ func main() {
 
 	var (
 		logger   log.Logger
-		httpAddr = net.JoinHostPort("locahost", envString("HTTP_PORT", defaultHTTPPort))
+		httpAddr = net.JoinHostPort("localhost", envString("HTTP_PORT", defaultHTTPPort))
 		grpcAddr = net.JoinHostPort("localhost", envString("GRPC_PORT", defaultGRPCPort))
 	)
 
 	logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
 	logger = log.With(logger, "ts", log.DefaultTimestampUTC())
+
+	db, err := database.Init(database.DefaultHost, database.DefaultPort, database.DefaultDBUser, database.DefaultDatabase, database.DefaultPassword)
+	if err != nil {
+		logger.Log("failed to connect to database: %v", err)
+		os.Exit(1)
+	}
+	fmt.Println("Database connection established")
+
+	err = db.AutoMigrate(&database.Document{})
+	if err != nil {
+		logger.Log("failed t auto-migrate database: %v", err)
+		os.Exit(1)
+
+	}
+	fmt.Println("Database auto-migrated")
 
 	var (
 		service     = watermark.NewService()
@@ -51,7 +67,7 @@ func main() {
 			os.Exit(1)
 		}
 		g.Add(func() error {
-			logger.Log("transport", "HTTP", "addr", "httpAddr")
+			logger.Log("transport", "HTTP", "addr", "httpAddr", "Port", "8081")
 			return http.Serve(httpListener, httpHandler)
 
 		}, func(error) {
@@ -65,7 +81,7 @@ func main() {
 			logger.Log("transport", "gRPC", "during", "Listen", "err", err)
 		}
 		g.Add(func() error {
-			logger.Log("transport", "gRPC", "addr", "grpcAddr")
+			logger.Log("transport", "gRPC", "addr", "grpcAddr", "Port", "8082")
 
 			baseServer := grpc.NewServer(grpc.UnaryInterceptor(kitgrpc.Interceptor))
 			pb.RegisterWatermarkServer(baseServer, grpcServer)
